@@ -113,20 +113,20 @@ void MujocoRos2Control::init()
   }
 
   std::unique_ptr<hardware_interface::ResourceManager> resource_manager =
-    std::make_unique<hardware_interface::ResourceManager>();
+    std::make_unique<hardware_interface::ResourceManager>(urdf_string, std::make_shared<rclcpp::Clock>(RCL_ROS_TIME), this->logger_);
 
-  try
-  {
-    resource_manager->load_urdf(urdf_string, false, false);
-  }
-  catch (...)
-  {
-    RCLCPP_ERROR(logger_, "Error while initializing URDF!");
-  }
+  // try
+  // {
+  //   resource_manager->load_urdf(urdf_string, false, false);
+  // }
+  // catch (...)
+  // {
+  //   RCLCPP_ERROR(logger_, "Error while initializing URDF!");
+  // }
 
   for (const auto &hardware : control_hardware_info)
   {
-    std::string robot_hw_sim_type_str_ = hardware.hardware_class_type;
+    std::string robot_hw_sim_type_str_ = hardware.hardware_plugin_name;
     std::unique_ptr<MujocoSystemInterface> mujoco_system;
     try
     {

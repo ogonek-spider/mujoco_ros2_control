@@ -110,7 +110,7 @@ hardware_interface::return_type MujocoSystem::write(
       {
         double error = joint_state.position_command - mj_data_->qpos[joint_state.mj_pos_adr];
         mj_data_->qfrc_applied[joint_state.mj_vel_adr] =
-          joint_state.position_pid.computeCommand(error, period.nanoseconds());
+          joint_state.position_pid.compute_command(error, period.nanoseconds());
       }
       else
       {
@@ -124,7 +124,7 @@ hardware_interface::return_type MujocoSystem::write(
       {
         double error = joint_state.velocity_command - mj_data_->qvel[joint_state.mj_vel_adr];
         mj_data_->qfrc_applied[joint_state.mj_vel_adr] =
-          joint_state.velocity_pid.computeCommand(error, period.nanoseconds());
+          joint_state.velocity_pid.compute_command(error, period.nanoseconds());
         ;
       }
       else
@@ -566,8 +566,8 @@ control_toolbox::Pid MujocoSystem::get_pid_gains(
   {
     i_min = std::numeric_limits<double>::lowest();
   }
-
-  return control_toolbox::Pid(kp, ki, kd, i_max, i_min, enable_anti_windup);
+  //FIXME add antiwindup strategy
+  return control_toolbox::Pid(kp, ki, kd, i_max, i_min);
 }
 }  // namespace mujoco_ros2_control
 

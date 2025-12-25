@@ -24,7 +24,7 @@
 #include "hardware_interface/system_interface.hpp"
 #include "mujoco/mujoco.h"
 #include "rclcpp/rclcpp.hpp"
-#include "urdf/model.h"
+#include "urdf/model.hpp"
 
 namespace mujoco_ros2_control
 {
