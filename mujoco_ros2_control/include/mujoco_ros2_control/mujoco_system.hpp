@@ -26,15 +26,10 @@
 #include <vector>
 
 #include "control_toolbox/pid.hpp"
-#include "hardware_interface/system_interface.hpp"
 #include "hardware_interface/types/hardware_interface_type_values.hpp"
 #include "joint_limits/joint_limits.hpp"
+#include "mujoco_ros2_control/mujoco_system_interface.hpp"
 #include "pluginlib/class_list_macros.hpp"
-
-#include "hardware_interface/system_interface.hpp"
-#include "mujoco/mujoco.h"
-#include "rclcpp/rclcpp.hpp"
-#include "urdf/model.hpp"
 
 namespace mujoco_ros2_control
 {
@@ -58,7 +53,7 @@ public:
 
   bool init_sim(
     mjModel *mujoco_model, mjData *mujoco_data, const urdf::Model &urdf_model,
-    const hardware_interface::HardwareInfo &hardware_info);
+    const hardware_interface::HardwareInfo &hardware_info) override;
 
   struct JointState
   {
@@ -140,6 +135,6 @@ private:
 }  // namespace mujoco_ros2_control
 
 
-PLUGINLIB_EXPORT_CLASS(mujoco_ros2_control::MujocoSystem, hardware_interface::SystemInterface)
+//PLUGINLIB_EXPORT_CLASS(mujoco_ros2_control::MujocoSystem, hardware_interface::SystemInterface)
 
 #endif  // MUJOCO_ROS2_CONTROL__MUJOCO_SYSTEM_HPP_
