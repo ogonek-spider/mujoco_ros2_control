@@ -25,6 +25,8 @@
 #include "mujoco_ros2_control/mujoco_rendering.hpp"
 #include "mujoco_ros2_control/mujoco_ros2_control.hpp"
 
+#include <pluginlib/class_loader.hpp>
+#include "mujoco_ros2_control/mujoco_system_interface.hpp"
 // MuJoCo data structures
 mjModel *mujoco_model = nullptr;
 mjData *mujoco_data = nullptr;
@@ -33,6 +35,10 @@ mjData *mujoco_data = nullptr;
 int main(int argc, const char **argv)
 {
   rclcpp::init(argc, argv);
+
+  // pluginlib::ClassLoader<mujoco_ros2_control::MujocoSystemInterface> poly_loader("mujoco_ros2_control", "mujoco_ros2_control::MujocoSystemInterface"); 
+  // std::shared_ptr<mujoco_ros2_control::MujocoSystemInterface> triangle = poly_loader.createSharedInstance("mujoco_ros2_control/MujocoSystem");
+
   std::shared_ptr<rclcpp::Node> node = rclcpp::Node::make_shared(
     "mujoco_ros2_control_node",
     rclcpp::NodeOptions().automatically_declare_parameters_from_overrides(true));

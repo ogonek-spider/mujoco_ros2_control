@@ -84,11 +84,12 @@ std::string MujocoRos2Control::get_robot_description()
 }
 
 void MujocoRos2Control::init()
-{
+{  
   clock_publisher_ = node_->create_publisher<rosgraph_msgs::msg::Clock>("/clock", 10);
 
   std::string urdf_string = this->get_robot_description();
 
+  RCLCPP_INFO(node_->get_logger(), "1. setup actuators and mechanism control node");
   // setup actuators and mechanism control node.
   std::vector<hardware_interface::HardwareInfo> control_hardware_info;
   try
@@ -100,20 +101,21 @@ void MujocoRos2Control::init()
     RCLCPP_ERROR_STREAM(logger_, "Error parsing URDF : " << ex.what());
     return;
   }
-
-  // try
-  // {
-  //   robot_hw_sim_loader_.reset(new pluginlib::ClassLoader<MujocoSystemInterface>(
-  //     "mujoco_ros2_control", "mujoco_ros2_control::MujocoSystemInterface"));
-  // }
-  // catch (pluginlib::LibraryLoadException &ex)
-  // {
-  //   RCLCPP_ERROR_STREAM(logger_, "Failed to create hardware interface loader:  " << ex.what());
-  //   return;
-  // }
-
+  RCLCPP_INFO(node_->get_logger(), "2. Creating resource manager");
   std::unique_ptr<hardware_interface::ResourceManager> resource_manager =
-    std::make_unique<hardware_interface::ResourceManager>(urdf_string, std::make_shared<rclcpp::Clock>(RCL_ROS_TIME), this->logger_);
+  std::make_unique<hardware_interface::ResourceManager>(urdf_string, std::make_shared<rclcpp::Clock>(RCL_ROS_TIME), this->logger_);
+
+  RCLCPP_INFO(node_->get_logger(), "3. Loading hardware plugins");
+  try
+  {
+    robot_hw_sim_loader_.reset(new pluginlib::ClassLoader<MujocoSystemInterface>(
+      "mujoco_ros2_control", "mujoco_ros2_control::MujocoSystemInterface"));
+  }
+  catch (pluginlib::LibraryLoadException &ex)
+  {
+    RCLCPP_ERROR_STREAM(logger_, "Failed to create hardware interface loader:  " << ex.what());
+    return;
+  }
 
   // try
   // {
@@ -124,38 +126,38 @@ void MujocoRos2Control::init()
   //   RCLCPP_ERROR(logger_, "Error while initializing URDF!");
   // }
 
-  // for (const auto &hardware : control_hardware_info)
-  // {
-  //   std::string robot_hw_sim_type_str_ = hardware.hardware_plugin_name;
-  //   RCLCPP_INFO(node_->get_logger(), "==== Trying to load plugin %s", robot_hw_sim_type_str_.c_str());
+  for (const auto &hardware : control_hardware_info)
+  {
+    std::string robot_hw_sim_type_str_ = hardware.hardware_plugin_name;
+    RCLCPP_INFO(node_->get_logger(), "Trying to load plugin %s", robot_hw_sim_type_str_.c_str());
 
-  //   std::unique_ptr<MujocoSystemInterface> mujoco_system;
-  //   try
-  //   {
-  //     mujoco_system = std::unique_ptr<MujocoSystemInterface>(
-  //       robot_hw_sim_loader_->createUnmanagedInstance(robot_hw_sim_type_str_));
-  //   }
-  //   catch (pluginlib::PluginlibException &ex)
-  //   {
-  //     RCLCPP_ERROR_STREAM(logger_, "The plugin failed to load. Error: " << ex.what());
-  //     continue;
-  //   }
+    std::unique_ptr<MujocoSystemInterface> mujoco_system;
+    try
+    {
+      mujoco_system = std::unique_ptr<MujocoSystemInterface>(
+        robot_hw_sim_loader_->createUnmanagedInstance(robot_hw_sim_type_str_));
+    }
+    catch (pluginlib::PluginlibException &ex)
+    {
+      RCLCPP_ERROR_STREAM(logger_, "The plugin failed to load. Error: " << ex.what());
+      continue;
+    }
 
-  //   urdf::Model urdf_model;
-  //   urdf_model.initString(urdf_string);
-  //   if (!mujoco_system->init_sim(mj_model_, mj_data_, urdf_model, hardware))
-  //   {
-  //     RCLCPP_FATAL(logger_, "Could not initialize robot simulation interface");
-  //     return;
-  //   }
+    urdf::Model urdf_model;
+    urdf_model.initString(urdf_string);
+    if (!mujoco_system->init_sim(mj_model_, mj_data_, urdf_model, hardware))
+    {
+      RCLCPP_FATAL(logger_, "Could not initialize robot simulation interface");
+      return;
+    }
 
-  //   resource_manager->import_component(std::move(mujoco_system), hardware);
+    resource_manager->import_component(std::move(mujoco_system), hardware);
 
-  //   rclcpp_lifecycle::State state(
-  //     lifecycle_msgs::msg::State::PRIMARY_STATE_ACTIVE,
-  //     hardware_interface::lifecycle_state_names::ACTIVE);
-  //   resource_manager->set_component_state(hardware.name, state);
-  // }
+    rclcpp_lifecycle::State state(
+      lifecycle_msgs::msg::State::PRIMARY_STATE_ACTIVE,
+      hardware_interface::lifecycle_state_names::ACTIVE);
+    resource_manager->set_component_state(hardware.name, state);
+  }
 
   // Create the controller manager
   RCLCPP_INFO(logger_, "Loading controller_manager");

@@ -28,6 +28,7 @@
 #include "pluginlib/class_loader.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "rosgraph_msgs/msg/clock.hpp"
+#include "mujoco_system_interface.hpp"
 
 #include "mujoco/mujoco.h"
 
@@ -51,7 +52,7 @@ private:
   mjData *mj_data_;
 
   rclcpp::Logger logger_;
-  // std::shared_ptr<pluginlib::ClassLoader<MujocoSystemInterface>> robot_hw_sim_loader_;
+  std::shared_ptr<pluginlib::ClassLoader<MujocoSystemInterface>> robot_hw_sim_loader_;
 
   std::shared_ptr<controller_manager::ControllerManager> controller_manager_;
   rclcpp::Executor::SharedPtr cm_executor_;
