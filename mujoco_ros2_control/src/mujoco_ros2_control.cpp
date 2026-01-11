@@ -101,16 +101,16 @@ void MujocoRos2Control::init()
     return;
   }
 
-  try
-  {
-    robot_hw_sim_loader_.reset(new pluginlib::ClassLoader<MujocoSystemInterface>(
-      "mujoco_ros2_control", "mujoco_ros2_control::MujocoSystemInterface"));
-  }
-  catch (pluginlib::LibraryLoadException &ex)
-  {
-    RCLCPP_ERROR_STREAM(logger_, "Failed to create hardware interface loader:  " << ex.what());
-    return;
-  }
+  // try
+  // {
+  //   robot_hw_sim_loader_.reset(new pluginlib::ClassLoader<MujocoSystemInterface>(
+  //     "mujoco_ros2_control", "mujoco_ros2_control::MujocoSystemInterface"));
+  // }
+  // catch (pluginlib::LibraryLoadException &ex)
+  // {
+  //   RCLCPP_ERROR_STREAM(logger_, "Failed to create hardware interface loader:  " << ex.what());
+  //   return;
+  // }
 
   std::unique_ptr<hardware_interface::ResourceManager> resource_manager =
     std::make_unique<hardware_interface::ResourceManager>(urdf_string, std::make_shared<rclcpp::Clock>(RCL_ROS_TIME), this->logger_);
@@ -124,36 +124,38 @@ void MujocoRos2Control::init()
   //   RCLCPP_ERROR(logger_, "Error while initializing URDF!");
   // }
 
-  for (const auto &hardware : control_hardware_info)
-  {
-    std::string robot_hw_sim_type_str_ = hardware.hardware_plugin_name;
-    std::unique_ptr<MujocoSystemInterface> mujoco_system;
-    try
-    {
-      mujoco_system = std::unique_ptr<MujocoSystemInterface>(
-        robot_hw_sim_loader_->createUnmanagedInstance(robot_hw_sim_type_str_));
-    }
-    catch (pluginlib::PluginlibException &ex)
-    {
-      RCLCPP_ERROR_STREAM(logger_, "The plugin failed to load. Error: " << ex.what());
-      continue;
-    }
+  // for (const auto &hardware : control_hardware_info)
+  // {
+  //   std::string robot_hw_sim_type_str_ = hardware.hardware_plugin_name;
+  //   RCLCPP_INFO(node_->get_logger(), "==== Trying to load plugin %s", robot_hw_sim_type_str_.c_str());
 
-    urdf::Model urdf_model;
-    urdf_model.initString(urdf_string);
-    if (!mujoco_system->init_sim(mj_model_, mj_data_, urdf_model, hardware))
-    {
-      RCLCPP_FATAL(logger_, "Could not initialize robot simulation interface");
-      return;
-    }
+  //   std::unique_ptr<MujocoSystemInterface> mujoco_system;
+  //   try
+  //   {
+  //     mujoco_system = std::unique_ptr<MujocoSystemInterface>(
+  //       robot_hw_sim_loader_->createUnmanagedInstance(robot_hw_sim_type_str_));
+  //   }
+  //   catch (pluginlib::PluginlibException &ex)
+  //   {
+  //     RCLCPP_ERROR_STREAM(logger_, "The plugin failed to load. Error: " << ex.what());
+  //     continue;
+  //   }
 
-    resource_manager->import_component(std::move(mujoco_system), hardware);
+  //   urdf::Model urdf_model;
+  //   urdf_model.initString(urdf_string);
+  //   if (!mujoco_system->init_sim(mj_model_, mj_data_, urdf_model, hardware))
+  //   {
+  //     RCLCPP_FATAL(logger_, "Could not initialize robot simulation interface");
+  //     return;
+  //   }
 
-    rclcpp_lifecycle::State state(
-      lifecycle_msgs::msg::State::PRIMARY_STATE_ACTIVE,
-      hardware_interface::lifecycle_state_names::ACTIVE);
-    resource_manager->set_component_state(hardware.name, state);
-  }
+  //   resource_manager->import_component(std::move(mujoco_system), hardware);
+
+  //   rclcpp_lifecycle::State state(
+  //     lifecycle_msgs::msg::State::PRIMARY_STATE_ACTIVE,
+  //     hardware_interface::lifecycle_state_names::ACTIVE);
+  //   resource_manager->set_component_state(hardware.name, state);
+  // }
 
   // Create the controller manager
   RCLCPP_INFO(logger_, "Loading controller_manager");

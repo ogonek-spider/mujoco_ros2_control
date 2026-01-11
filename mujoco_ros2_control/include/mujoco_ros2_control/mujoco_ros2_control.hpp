@@ -31,7 +31,7 @@
 
 #include "mujoco/mujoco.h"
 
-#include "mujoco_ros2_control/mujoco_system.hpp"
+// #include "mujoco_ros2_control/mujoco_system.hpp"
 
 namespace mujoco_ros2_control
 {
@@ -51,7 +51,7 @@ private:
   mjData *mj_data_;
 
   rclcpp::Logger logger_;
-  std::shared_ptr<pluginlib::ClassLoader<MujocoSystemInterface>> robot_hw_sim_loader_;
+  // std::shared_ptr<pluginlib::ClassLoader<MujocoSystemInterface>> robot_hw_sim_loader_;
 
   std::shared_ptr<controller_manager::ControllerManager> controller_manager_;
   rclcpp::Executor::SharedPtr cm_executor_;
