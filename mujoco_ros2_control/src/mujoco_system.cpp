@@ -160,11 +160,11 @@ bool MujocoSystem::init_sim(
   mj_data_ = mujoco_data;
 
   logger_ = rclcpp::get_logger("mujoco_system");
-
   register_joints(urdf_model, hardware_info);
   register_sensors(urdf_model, hardware_info);
 
   set_initial_pose();
+  RCLCPP_INFO(logger_, "Mujoco system initialized");
   return true;
 }
 

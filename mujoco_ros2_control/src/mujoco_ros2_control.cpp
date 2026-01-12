@@ -26,6 +26,87 @@
 
 namespace mujoco_ros2_control
 {
+
+class MJResourceManager : public hardware_interface::ResourceManager
+{
+  public:
+  MJResourceManager(hardware_interface::ResourceManagerParams & params, mjModel *mujoco_model, mjData *mujoco_data)
+  : mj_model_(mujoco_model), 
+    mj_data_(mujoco_data),
+    logger_(params.logger),
+    hardware_interface::ResourceManager(params, false) {
+  }
+
+bool load_and_initialize_components(
+    const hardware_interface::ResourceManagerParams & params) override
+  {
+    components_are_loaded_and_initialized_ = true;
+    
+    try
+    {
+      robot_hw_sim_loader_.reset(new pluginlib::ClassLoader<MujocoSystemInterface>(
+        "mujoco_ros2_control", "mujoco_ros2_control::MujocoSystemInterface"));
+    }
+    catch (pluginlib::LibraryLoadException &ex)
+    {
+      RCLCPP_ERROR_STREAM(params.logger, "Failed to create hardware interface loader:  " << ex.what());
+      return false;
+    }
+
+    const auto hardware_info =
+      hardware_interface::parse_control_resources_from_urdf(params.robot_description);    
+
+    for (const auto &hardware : hardware_info)
+    {
+      std::string robot_hw_sim_type_str_ = hardware.hardware_plugin_name;
+      RCLCPP_INFO(params.logger, "Trying to load plugin %s", robot_hw_sim_type_str_.c_str());
+
+      std::unique_ptr<MujocoSystemInterface> mujoco_system;
+      try
+      {
+        mujoco_system = std::unique_ptr<MujocoSystemInterface>(
+          robot_hw_sim_loader_->createUnmanagedInstance(robot_hw_sim_type_str_));
+      }
+      catch (pluginlib::PluginlibException &ex)
+      {
+        RCLCPP_ERROR_STREAM(params.logger, "The plugin failed to load. Error: " << ex.what());
+        continue;
+      }
+
+      urdf::Model urdf_model;
+      urdf_model.initString(params.robot_description);
+      if (!mujoco_system->init_sim(mj_model_, mj_data_, urdf_model, hardware))
+      {
+        RCLCPP_FATAL(params.logger, "Could not initialize robot simulation interface");
+        return false;
+      }
+
+      import_component(std::move(mujoco_system), hardware);
+
+      rclcpp_lifecycle::State state(
+        lifecycle_msgs::msg::State::PRIMARY_STATE_ACTIVE,
+        hardware_interface::lifecycle_state_names::ACTIVE);
+      set_component_state(hardware.name, state);
+    }
+    
+    return components_are_loaded_and_initialized_;
+  }
+
+private:
+  // std::shared_ptr<rclcpp::Node> node_;
+  // sim::EntityComponentManager * ecm_;
+  // std::map<std::string, sim::Entity> enabledJoints_;
+
+  
+  std::shared_ptr<pluginlib::ClassLoader<MujocoSystemInterface>> robot_hw_sim_loader_;
+
+  mjModel *mj_model_;
+  mjData *mj_data_;
+
+  rclcpp::Logger logger_;
+};
+
+
 MujocoRos2Control::MujocoRos2Control(
   rclcpp::Node::SharedPtr &node, mjModel *mujoco_model, mjData *mujoco_data)
     : node_(node),
@@ -86,6 +167,7 @@ std::string MujocoRos2Control::get_robot_description()
 void MujocoRos2Control::init()
 {  
   clock_publisher_ = node_->create_publisher<rosgraph_msgs::msg::Clock>("/clock", 10);
+  cm_executor_ = std::make_shared<rclcpp::executors::MultiThreadedExecutor>();
 
   std::string urdf_string = this->get_robot_description();
 
@@ -102,66 +184,16 @@ void MujocoRos2Control::init()
     return;
   }
   RCLCPP_INFO(node_->get_logger(), "2. Creating resource manager");
-  std::unique_ptr<hardware_interface::ResourceManager> resource_manager =
-  std::make_unique<hardware_interface::ResourceManager>(urdf_string, std::make_shared<rclcpp::Clock>(RCL_ROS_TIME), this->logger_);
+  hardware_interface::ResourceManagerParams params;
+  params.robot_description = urdf_string;
+  params.clock = std::make_shared<rclcpp::Clock>(RCL_ROS_TIME);
+  params.logger = rclcpp::get_logger(node_->get_name() + std::string(".resourcemanager"));
+  params.executor = cm_executor_;
 
-  RCLCPP_INFO(node_->get_logger(), "3. Loading hardware plugins");
-  try
-  {
-    robot_hw_sim_loader_.reset(new pluginlib::ClassLoader<MujocoSystemInterface>(
-      "mujoco_ros2_control", "mujoco_ros2_control::MujocoSystemInterface"));
-  }
-  catch (pluginlib::LibraryLoadException &ex)
-  {
-    RCLCPP_ERROR_STREAM(logger_, "Failed to create hardware interface loader:  " << ex.what());
-    return;
-  }
-
-  // try
-  // {
-  //   resource_manager->load_urdf(urdf_string, false, false);
-  // }
-  // catch (...)
-  // {
-  //   RCLCPP_ERROR(logger_, "Error while initializing URDF!");
-  // }
-
-  for (const auto &hardware : control_hardware_info)
-  {
-    std::string robot_hw_sim_type_str_ = hardware.hardware_plugin_name;
-    RCLCPP_INFO(node_->get_logger(), "Trying to load plugin %s", robot_hw_sim_type_str_.c_str());
-
-    std::unique_ptr<MujocoSystemInterface> mujoco_system;
-    try
-    {
-      mujoco_system = std::unique_ptr<MujocoSystemInterface>(
-        robot_hw_sim_loader_->createUnmanagedInstance(robot_hw_sim_type_str_));
-    }
-    catch (pluginlib::PluginlibException &ex)
-    {
-      RCLCPP_ERROR_STREAM(logger_, "The plugin failed to load. Error: " << ex.what());
-      continue;
-    }
-
-    urdf::Model urdf_model;
-    urdf_model.initString(urdf_string);
-    if (!mujoco_system->init_sim(mj_model_, mj_data_, urdf_model, hardware))
-    {
-      RCLCPP_FATAL(logger_, "Could not initialize robot simulation interface");
-      return;
-    }
-
-    resource_manager->import_component(std::move(mujoco_system), hardware);
-
-    rclcpp_lifecycle::State state(
-      lifecycle_msgs::msg::State::PRIMARY_STATE_ACTIVE,
-      hardware_interface::lifecycle_state_names::ACTIVE);
-    resource_manager->set_component_state(hardware.name, state);
-  }
+  std::unique_ptr<MJResourceManager> resource_manager = std::make_unique<MJResourceManager>(params, mj_model_, mj_data_);
 
   // Create the controller manager
-  RCLCPP_INFO(logger_, "Loading controller_manager");
-  cm_executor_ = std::make_shared<rclcpp::executors::MultiThreadedExecutor>();
+  RCLCPP_INFO(logger_, "3. Loading controller_manager");
   controller_manager_ = std::make_shared<controller_manager::ControllerManager>(
     std::move(resource_manager), cm_executor_, "controller_manager", node_->get_namespace());
   cm_executor_->add_node(controller_manager_);

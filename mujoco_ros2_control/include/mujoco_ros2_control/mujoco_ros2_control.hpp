@@ -36,6 +36,7 @@
 
 namespace mujoco_ros2_control
 {
+
 class MujocoRos2Control
 {
 public:
@@ -52,7 +53,6 @@ private:
   mjData *mj_data_;
 
   rclcpp::Logger logger_;
-  std::shared_ptr<pluginlib::ClassLoader<MujocoSystemInterface>> robot_hw_sim_loader_;
 
   std::shared_ptr<controller_manager::ControllerManager> controller_manager_;
   rclcpp::Executor::SharedPtr cm_executor_;
