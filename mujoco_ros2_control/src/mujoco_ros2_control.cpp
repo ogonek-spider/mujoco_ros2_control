@@ -93,11 +93,6 @@ bool load_and_initialize_components(
   }
 
 private:
-  // std::shared_ptr<rclcpp::Node> node_;
-  // sim::EntityComponentManager * ecm_;
-  // std::map<std::string, sim::Entity> enabledJoints_;
-
-  
   std::shared_ptr<pluginlib::ClassLoader<MujocoSystemInterface>> robot_hw_sim_loader_;
 
   mjModel *mj_model_;

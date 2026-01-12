@@ -36,9 +36,6 @@ int main(int argc, const char **argv)
 {
   rclcpp::init(argc, argv);
 
-  // pluginlib::ClassLoader<mujoco_ros2_control::MujocoSystemInterface> poly_loader("mujoco_ros2_control", "mujoco_ros2_control::MujocoSystemInterface"); 
-  // std::shared_ptr<mujoco_ros2_control::MujocoSystemInterface> triangle = poly_loader.createSharedInstance("mujoco_ros2_control/MujocoSystem");
-
   std::shared_ptr<rclcpp::Node> node = rclcpp::Node::make_shared(
     "mujoco_ros2_control_node",
     rclcpp::NodeOptions().automatically_declare_parameters_from_overrides(true));

@@ -2,6 +2,16 @@
 
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
+## Note for Kilted
+I did bare minimum fixes, few bugs left, may be fix later.
+
+Only one example is working
+
+```
+ros2 launch mujoco_ros2_control_demos cart_example_position.launch.py
+ros2 run mujoco_ros2_control_demos example_position
+```
+
 ## Overview
 
 This repository contains a ROS2 control package for Mujoco simulation, offering the `MujocoSystem` plugin to integrate `ros2_control` with Mujoco. Additionally, it includes a node responsible for initializing the plugin, Mujoco rendering, and the simulation.
