@@ -45,12 +45,12 @@ def generate_launch_description():
 
     load_joint_state_controller = ExecuteProcess(
         cmd=['ros2', 'control', 'load_controller', '--set-state', 'active',
-             'joint_state_broadcaster'],
+             'joint_state_broadcaster', controller_config_file],
         output='screen'
     )
 
     load_joint_trajectory_controller = ExecuteProcess(
-        cmd=['ros2', 'control', 'load_controller', '--set-state', 'active', 'velocity_controller'],
+        cmd=['ros2', 'control', 'load_controller', '--set-state', 'active', 'velocity_controller', controller_config_file],
         output='screen'
     )
 
