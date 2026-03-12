@@ -104,6 +104,8 @@ hardware_interface::return_type MujocoSystem::write(
   // Joint states
   for (auto &joint_state : joint_states_)
   {
+    mj_data_->ctrl[joint_state.actuator_id] = joint_state.position_command;
+    continue;
     if (joint_state.is_position_control_enabled)
     {
       if (joint_state.is_pid_enabled)
@@ -177,6 +179,7 @@ void MujocoSystem::register_joints(
   {
     auto joint = hardware_info.joints.at(joint_index);
     int mujoco_joint_id = mj_name2id(mj_model_, mjtObj::mjOBJ_JOINT, joint.name.c_str());
+  
     if (mujoco_joint_id == -1)
     {
       RCLCPP_ERROR_STREAM(
@@ -190,6 +193,7 @@ void MujocoSystem::register_joints(
     joint_state.mj_joint_type = mj_model_->jnt_type[mujoco_joint_id];
     joint_state.mj_pos_adr = mj_model_->jnt_qposadr[mujoco_joint_id];
     joint_state.mj_vel_adr = mj_model_->jnt_dofadr[mujoco_joint_id];
+    joint_state.actuator_id = mj_name2id(mj_model_, mjtObj::mjOBJ_ACTUATOR, joint.name.c_str()); 
 
     joint_states_.at(joint_index) = joint_state;
     JointState &last_joint_state = joint_states_.at(joint_index);
