@@ -22,6 +22,8 @@ find_package(urdf REQUIRED)
 find_package(glfw3 REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(control_toolbox REQUIRED)
+find_package(std_msgs REQUIRED)
+find_package(sensor_msgs REQUIRED)
 
 set(THIS_PACKAGE_DEPENDS
   ament_cmake
@@ -33,6 +35,8 @@ set(THIS_PACKAGE_DEPENDS
   urdf
   glfw3
   control_toolbox
+  std_msgs
+  sensor_msgs
 )
 set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
 
@@ -76,6 +80,7 @@ add_executable(mujoco_ros2_control
   src/mujoco_rendering.cpp
   src/mujoco_ros2_control.cpp
   src/mujoco_cameras.cpp
+  src/mujoco_lidar.cpp
 )
 
 ament_target_dependencies(mujoco_ros2_control ${THIS_PACKAGE_DEPENDS})

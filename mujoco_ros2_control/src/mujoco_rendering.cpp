@@ -47,10 +47,16 @@ MujocoRendering::MujocoRendering()
 {
 }
 
-void MujocoRendering::init(mjModel *mujoco_model, mjData *mujoco_data)
+void MujocoRendering::init(
+  mjModel *mujoco_model, mjData *mujoco_data, rclcpp::Node::SharedPtr node)
 {
   mj_model_ = mujoco_model;
   mj_data_ = mujoco_data;
+
+  if (node)
+  {
+    key_publisher_ = node->create_publisher<std_msgs::msg::String>("~/key", 10);
+  }
 
   // create window, make OpenGL context current, request v-sync
   glfwWindowHint(GLFW_VISIBLE, GLFW_TRUE);
@@ -142,11 +148,27 @@ void MujocoRendering::scroll_callback(GLFWwindow *window, double xoffset, double
 void MujocoRendering::keyboard_callback_impl(
   GLFWwindow * /* window */, int key, int /* scancode */, int act, int /* mods */)
 {
+  if (act != GLFW_PRESS)
+  {
+    return;
+  }
+
   // backspace: reset simulation
-  if (act == GLFW_PRESS && key == GLFW_KEY_BACKSPACE)
+  if (key == GLFW_KEY_BACKSPACE)
   {
     mj_resetData(mj_model_, mj_data_);
     mj_forward(mj_model_, mj_data_);
+    return;
+  }
+
+  // every other printable key goes out on the topic. GLFW names its printable keys after
+  // the ASCII code of the unshifted US-layout character, so space/comma/period/digits and
+  // A-Z map straight across; lower-case them so subscribers only have one case to match.
+  if (key_publisher_ && key >= GLFW_KEY_SPACE && key <= GLFW_KEY_GRAVE_ACCENT)
+  {
+    std_msgs::msg::String msg;
+    msg.data = std::string(1, static_cast<char>(key >= 'A' && key <= 'Z' ? key + 32 : key));
+    key_publisher_->publish(msg);
   }
 }
 

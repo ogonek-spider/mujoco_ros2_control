@@ -184,6 +184,15 @@ void MujocoRos2Control::init()
   params.clock = std::make_shared<rclcpp::Clock>(RCL_ROS_TIME);
   params.logger = rclcpp::get_logger(node_->get_name() + std::string(".resourcemanager"));
   params.executor = cm_executor_;
+  // The joint limiters live inside the resource manager, and they size their per-cycle
+  // allowance from *this* rate (ResourceStorage::cm_update_rate_), not from the control
+  // loop below.  It defaults to 100 Hz, so leaving it unset enforces every limit -
+  // position, velocity, effort - scaled by the ratio of the two rates, silently.  The
+  // controller_manager cannot supply it: it does not exist yet, since it takes this
+  // resource manager by value.  So it is read off our own node, and the check after the
+  // controller_manager is constructed is what stops the two from drifting apart.
+  params.update_rate = static_cast<unsigned int>(
+    node_->has_parameter("update_rate") ? node_->get_parameter("update_rate").as_int() : 100);
 
   std::unique_ptr<MJResourceManager> resource_manager = std::make_unique<MJResourceManager>(params, mj_model_, mj_data_);
 
@@ -200,6 +209,17 @@ void MujocoRos2Control::init()
   }
 
   auto update_rate = controller_manager_->get_parameter("update_rate").as_int();
+  if (static_cast<unsigned int>(update_rate) != params.update_rate)
+  {
+    RCLCPP_ERROR(
+      logger_,
+      "update_rate mismatch: the controller_manager loop runs at %ld Hz, but the joint "
+      "limiters were built for %u Hz, so every command limit is enforced at %.2fx its real "
+      "value.  Set 'update_rate' on the %s node to %ld as well.",
+      update_rate, params.update_rate,
+      static_cast<double>(update_rate) / static_cast<double>(params.update_rate),
+      node_->get_name(), update_rate);
+  }
   control_period_ = rclcpp::Duration(std::chrono::duration_cast<std::chrono::nanoseconds>(
     std::chrono::duration<double>(1.0 / static_cast<double>(update_rate))));
 

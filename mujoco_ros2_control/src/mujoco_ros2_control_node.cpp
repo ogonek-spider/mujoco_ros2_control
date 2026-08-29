@@ -18,10 +18,14 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
+#include <chrono>
+#include <thread>
+
 #include "mujoco/mujoco.h"
 #include "rclcpp/rclcpp.hpp"
 
 #include "mujoco_ros2_control/mujoco_cameras.hpp"
+#include "mujoco_ros2_control/mujoco_lidar.hpp"
 #include "mujoco_ros2_control/mujoco_rendering.hpp"
 #include "mujoco_ros2_control/mujoco_ros2_control.hpp"
 
@@ -77,11 +81,54 @@ int main(int argc, const char **argv)
     mju_error("Could not initialize GLFW");
   }
   auto rendering = mujoco_ros2_control::MujocoRendering::get_instance();
-  rendering->init(mujoco_model, mujoco_data);
+  rendering->init(mujoco_model, mujoco_data, node);
   RCLCPP_INFO_STREAM(node->get_logger(), "Mujoco rendering has been successfully initialized !");
 
   auto cameras = std::make_unique<mujoco_ros2_control::MujocoCameras>(node);
   cameras->init(mujoco_model);
+
+  // Ray-cast lidar, if the model carries one.  Unlike the cameras it needs no GL context
+  // and no offscreen buffer - it is mj_multiRay over mjData - so it can run on the sim
+  // cadence below rather than being throttled down to keep the renderer alive.
+  auto lidar = std::make_unique<mujoco_ros2_control::MujocoLidar>(node);
+  lidar->init(mujoco_model);
+
+  // Pace the loop against the wall clock.  The frame below advances a fixed 1/60 s of sim
+  // and never sleeps, so without this it runs at whatever rate the frame costs - profiled
+  // on an M-series mac at 2.8-3.0x real time, a frame being 70 % render, 23 % camera and
+  // 7-8 % physics-plus-ros2_control.  Faster than real time is not free: everything on
+  // screen moves at that multiple, /clock outruns the wall clock so any wall-clock timeout
+  // outside the sim fires early relative to what the robot has done, and a gait tuned by
+  // eye gets tuned against a robot that does not exist.
+  //
+  // real_time_factor 1.0 (default) tracks the wall clock; >1 runs that multiple faster; <= 0
+  // restores the old unthrottled behaviour, which is what long headless sweeps want.
+  double real_time_factor = 1.0;
+  if (!node->has_parameter("real_time_factor"))
+  {
+    node->declare_parameter("real_time_factor", 1.0);
+  }
+  try
+  {
+    real_time_factor = node->get_parameter("real_time_factor").as_double();
+  }
+  catch (const rclcpp::exceptions::InvalidParameterTypeException &e)
+  {
+    RCLCPP_WARN_STREAM(
+      node->get_logger(),
+      "real_time_factor must be a float (try real_time_factor:=2.0, not 2): " << e.what()
+        << " - falling back to 1.0");
+  }
+  RCLCPP_INFO_STREAM(
+    node->get_logger(), "Pacing the simulation at " << real_time_factor << "x real time"
+      << (real_time_factor > 0.0 ? "" : " (unthrottled)"));
+
+  // How far the sim may fall behind the wall clock before the pacing gives up and resyncs.
+  // Without this a machine that cannot keep up accumulates debt it can never repay and then
+  // sprints through the backlog the moment it gets a fast frame.
+  const double max_lag_s = 0.1;
+  auto wall_ref = std::chrono::steady_clock::now();
+  mjtNum sim_ref = mujoco_data->time;
 
   // run main loop, target real-time simulation and 60 fps rendering with cameras around 6 hz
   mjtNum last_cam_update = mujoco_data->time;
@@ -97,6 +144,9 @@ int main(int argc, const char **argv)
       mujoco_control.update();
     }
     rendering->update();
+    // self-throttles to the frame rate in the model; calling it per rendered frame just
+    // means a cloud is never more than one frame late
+    lidar->update(mujoco_model, mujoco_data);
 
     // Updating cameras at ~6 Hz
     // TODO(eholum): Break control and rendering into separate processes
@@ -104,6 +154,23 @@ int main(int argc, const char **argv)
     {
       cameras->update(mujoco_model, mujoco_data);
       last_cam_update = simstart;
+    }
+
+    if (real_time_factor > 0.0)
+    {
+      double sim_elapsed = (mujoco_data->time - sim_ref) / real_time_factor;
+      double wall_elapsed =
+        std::chrono::duration<double>(std::chrono::steady_clock::now() - wall_ref).count();
+      double ahead = sim_elapsed - wall_elapsed;
+      if (ahead > 0.0)
+      {
+        std::this_thread::sleep_for(std::chrono::duration<double>(ahead));
+      }
+      else if (-ahead > max_lag_s)
+      {
+        wall_ref = std::chrono::steady_clock::now();
+        sim_ref = mujoco_data->time;
+      }
     }
   }
 

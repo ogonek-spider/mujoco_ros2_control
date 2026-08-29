@@ -27,6 +27,7 @@
 #include "GLFW/glfw3.h"
 #include "mujoco/mujoco.h"
 #include "rclcpp/rclcpp.hpp"
+#include "std_msgs/msg/string.hpp"
 
 #include "rclcpp/node.hpp"
 
@@ -40,7 +41,11 @@ public:
   void operator=(const MujocoRendering &) = delete;
 
   static MujocoRendering *get_instance();
-  void init(mjModel *mujoco_model, mjData *mujoco_data);
+  // `node` is optional: given one, every printable key pressed in the viewer window is
+  // republished on <node>/key, so a teleop node can be driven from the render window
+  // instead of from a second terminal's TTY.
+  void init(
+    mjModel *mujoco_model, mjData *mujoco_data, rclcpp::Node::SharedPtr node = nullptr);
   bool is_close_flag_raised();
   void update();
   void close();
@@ -70,6 +75,8 @@ private:
   mjvOption mjv_opt_;
   mjvScene mjv_scn_;
   mjrContext mjr_con_;
+
+  rclcpp::Publisher<std_msgs::msg::String>::SharedPtr key_publisher_;
 
   bool button_left_;
   bool button_middle_;
