@@ -216,9 +216,9 @@ void MujocoRos2Control::init()
       "update_rate mismatch: the controller_manager loop runs at %ld Hz, but the joint "
       "limiters were built for %u Hz, so every command limit is enforced at %.2fx its real "
       "value.  Set 'update_rate' on the %s node to %ld as well.",
-      update_rate, params.update_rate,
+      static_cast<long>(update_rate), params.update_rate,
       static_cast<double>(update_rate) / static_cast<double>(params.update_rate),
-      node_->get_name(), update_rate);
+      node_->get_name(), static_cast<long>(update_rate));
   }
   control_period_ = rclcpp::Duration(std::chrono::duration_cast<std::chrono::nanoseconds>(
     std::chrono::duration<double>(1.0 / static_cast<double>(update_rate))));
