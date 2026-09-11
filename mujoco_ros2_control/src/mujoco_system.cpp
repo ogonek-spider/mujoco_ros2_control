@@ -42,7 +42,10 @@ hardware_interface::return_type MujocoSystem::read(
   {
     joint_state.position = mj_data_->qpos[joint_state.mj_pos_adr];
     joint_state.velocity = mj_data_->qvel[joint_state.mj_vel_adr];
-    joint_state.effort = mj_data_->qfrc_applied[joint_state.mj_vel_adr];
+    // qfrc_applied is an INPUT: its only writers were in the dead block write() used to
+    // carry, so this read was always 0 and /joint_states effort was always 0 with it.
+    // qfrc_actuator is what the position actuators actually put into the joint.
+    joint_state.effort = mj_data_->qfrc_actuator[joint_state.mj_vel_adr];
   }
 
   // IMU Sensor data
@@ -83,7 +86,7 @@ hardware_interface::return_type MujocoSystem::read(
 }
 
 hardware_interface::return_type MujocoSystem::write(
-  const rclcpp::Time & /* time */, const rclcpp::Duration &period)
+  const rclcpp::Time & /* time */, const rclcpp::Duration & /* period */)
 {
   // update mimic joint
   for (auto &joint_state : joint_states_)
@@ -101,55 +104,28 @@ hardware_interface::return_type MujocoSystem::write(
         joint_states_.at(joint_state.mimicked_joint_index).effort_command;
     }
   }
-  // Joint states
+  // Joint states.
+  //
+  // ONE path, and it is the only one that ever ran: write the position command to the
+  // MuJoCo position actuator and let the actuator's own gains close the loop.  What used
+  // to be here was that line followed by an unconditional `continue` and ~45 lines of
+  // position/velocity/effort handling behind it - dead from the first statement, along
+  // with the two control_toolbox::Pid per joint that register_joints() built from the
+  // xacro's position_kp/kd/i_max and that nothing ever called.  Advertising gains the
+  // code ignores is worse than not having them: the gains in smalldog-mujoco.urdf.xacro
+  // read as tuning knobs and turning them did nothing at all.  Deleted 2026-09-11; the
+  // actuator's kp/dampratio in the MJCF (mini_dog.py's MJ_KP / MJ_DAMPRATIO) are the real
+  // ones.
   for (auto &joint_state : joint_states_)
   {
+    // actuator_id is mj_name2id's -1 when the model has no actuator of that name, and
+    // ctrl[-1] is a write one double before the array.  register_joints() drops such a
+    // joint now, so this should not fire; it is cheap and it is a memory write.
+    if (joint_state.actuator_id < 0)
+    {
+      continue;
+    }
     mj_data_->ctrl[joint_state.actuator_id] = joint_state.position_command;
-    continue;
-    if (joint_state.is_position_control_enabled)
-    {
-      if (joint_state.is_pid_enabled)
-      {
-        double error = joint_state.position_command - mj_data_->qpos[joint_state.mj_pos_adr];
-        mj_data_->qfrc_applied[joint_state.mj_vel_adr] =
-          joint_state.position_pid.compute_command(error, period.nanoseconds());
-      }
-      else
-      {
-        mj_data_->qpos[joint_state.mj_pos_adr] = joint_state.position_command;
-      }
-    }
-
-    if (joint_state.is_velocity_control_enabled)
-    {
-      if (joint_state.is_pid_enabled)
-      {
-        double error = joint_state.velocity_command - mj_data_->qvel[joint_state.mj_vel_adr];
-        mj_data_->qfrc_applied[joint_state.mj_vel_adr] =
-          joint_state.velocity_pid.compute_command(error, period.nanoseconds());
-        ;
-      }
-      else
-      {
-        mj_data_->qvel[joint_state.mj_vel_adr] = joint_state.velocity_command;
-      }
-    }
-
-    if (joint_state.is_effort_control_enabled)
-    {
-      double min_eff, max_eff;
-      min_eff = joint_state.joint_limits.has_effort_limits
-                  ? -1 * joint_state.joint_limits.max_effort
-                  : std::numeric_limits<double>::lowest();
-      min_eff = std::max(min_eff, joint_state.min_effort_command);
-
-      max_eff = joint_state.joint_limits.has_effort_limits ? joint_state.joint_limits.max_effort
-                                                           : std::numeric_limits<double>::max();
-      max_eff = std::min(max_eff, joint_state.max_effort_command);
-
-      mj_data_->qfrc_applied[joint_state.mj_vel_adr] =
-        clamp(joint_state.effort_command, min_eff, max_eff);
-    }
   }
   return hardware_interface::return_type::OK;
 }
@@ -173,13 +149,19 @@ bool MujocoSystem::init_sim(
 void MujocoSystem::register_joints(
   const urdf::Model &urdf_model, const hardware_interface::HardwareInfo &hardware_info)
 {
-  joint_states_.resize(hardware_info.joints.size());
+  // reserve(), not resize(): a joint the model does not have is SKIPPED rather than left
+  // in the vector value-initialised.  It used to be resized up front and `continue`d over,
+  // which left an all-zero JointState behind - read() then indexed qpos[0]/qvel[0] (the
+  // free joint's first component) and reported it as that joint's position forever.
+  // Reserving also pins the addresses the state/command interfaces below point into.
+  joint_states_.clear();
+  joint_states_.reserve(hardware_info.joints.size());
 
   for (size_t joint_index = 0; joint_index < hardware_info.joints.size(); joint_index++)
   {
     auto joint = hardware_info.joints.at(joint_index);
     int mujoco_joint_id = mj_name2id(mj_model_, mjtObj::mjOBJ_JOINT, joint.name.c_str());
-  
+
     if (mujoco_joint_id == -1)
     {
       RCLCPP_ERROR_STREAM(
@@ -193,10 +175,18 @@ void MujocoSystem::register_joints(
     joint_state.mj_joint_type = mj_model_->jnt_type[mujoco_joint_id];
     joint_state.mj_pos_adr = mj_model_->jnt_qposadr[mujoco_joint_id];
     joint_state.mj_vel_adr = mj_model_->jnt_dofadr[mujoco_joint_id];
-    joint_state.actuator_id = mj_name2id(mj_model_, mjtObj::mjOBJ_ACTUATOR, joint.name.c_str()); 
+    joint_state.actuator_id = mj_name2id(mj_model_, mjtObj::mjOBJ_ACTUATOR, joint.name.c_str());
 
-    joint_states_.at(joint_index) = joint_state;
-    JointState &last_joint_state = joint_states_.at(joint_index);
+    if (joint_state.actuator_id == -1)
+    {
+      RCLCPP_ERROR_STREAM(
+        logger_, "Failed to find actuator in mujoco model, joint name: " << joint.name
+                                                                         << " - skipping it");
+      continue;
+    }
+
+    joint_states_.push_back(joint_state);
+    JointState &last_joint_state = joint_states_.back();
 
     // get joint limit from urdf
     get_joint_limits(urdf_model.getJoint(last_joint_state.name), last_joint_state.joint_limits);
@@ -214,8 +204,17 @@ void MujocoSystem::register_joints(
         throw std::runtime_error(std::string("Mimicked joint '") + mimicked_joint + "' not found");
       }
       last_joint_state.is_mimic = true;
-      last_joint_state.mimicked_joint_index =
-        std::distance(hardware_info.joints.begin(), mimicked_joint_it);
+      // index into joint_states_, which is no longer 1:1 with hardware_info.joints now
+      // that joints the model does not have are skipped: find the mimicked one by name.
+      const auto kept = std::find_if(
+        joint_states_.begin(), joint_states_.end(),
+        [&mimicked_joint](const JointState &js) { return js.name == mimicked_joint; });
+      if (kept == joint_states_.end())
+      {
+        throw std::runtime_error(
+          std::string("Mimicked joint '") + mimicked_joint + "' is not in the mujoco model");
+      }
+      last_joint_state.mimicked_joint_index = std::distance(joint_states_.begin(), kept);
 
       auto param_it = joint.parameters.find("multiplier");
       if (param_it != joint.parameters.end())
@@ -324,18 +323,10 @@ void MujocoSystem::register_joints(
         last_joint_state.max_effort_command = get_max_value(command_if);
       }
 
-      if (command_if.name.find("_pid") != std::string::npos)
-      {
-        last_joint_state.is_pid_enabled = true;
-      }
     }
-
-    // Get PID gains, if needed
-    if (last_joint_state.is_pid_enabled)
-    {
-      last_joint_state.position_pid = get_pid_gains(joint, hardware_interface::HW_IF_POSITION);
-      last_joint_state.velocity_pid = get_pid_gains(joint, hardware_interface::HW_IF_VELOCITY);
-    }
+    // No PID here any more.  write() has one path - ctrl[] = position_command - so the two
+    // control_toolbox::Pid this used to build from the xacro's position_kp/kd/i_max were
+    // constructed, stored and never read.  See write().
   }
 }
 
@@ -344,6 +335,15 @@ void MujocoSystem::register_sensors(
 {
   // Assuming force/torque sensor end with "_fts" in the name,
   // and IMU sensor end with "_imu" in the name
+  //
+  // reserve() FIRST: the loop below push_back()s into these two vectors and then hands
+  // state_interfaces_ the address of a field inside the element it just added.  Without
+  // the reserve, the next push_back reallocates and every interface handed out so far
+  // points into freed memory - it happens to survive with one IMU and no FT sensor, which
+  // is exactly the kind of bug that waits for a second sensor to appear.
+  ft_sensor_data_.reserve(hardware_info.sensors.size());
+  imu_sensor_data_.reserve(hardware_info.sensors.size());
+
   for (size_t sensor_index = 0; sensor_index < hardware_info.sensors.size(); sensor_index++)
   {
     auto sensor = hardware_info.sensors.at(sensor_index);
@@ -513,66 +513,6 @@ void MujocoSystem::get_joint_limits(
   }
 }
 
-control_toolbox::Pid MujocoSystem::get_pid_gains(
-  const hardware_interface::ComponentInfo &joint_info, std::string command_interface)
-{
-  double kp, ki, kd, i_max, i_min;
-  std::string key;
-  key = command_interface + std::string(PARAM_KP);
-  if (joint_info.parameters.find(key) != joint_info.parameters.end())
-  {
-    kp = std::stod(joint_info.parameters.at(key));
-  }
-  else
-  {
-    kp = 0.0;
-  }
-
-  key = command_interface + std::string(PARAM_KI);
-  if (joint_info.parameters.find(key) != joint_info.parameters.end())
-  {
-    ki = std::stod(joint_info.parameters.at(key));
-  }
-  else
-  {
-    ki = 0.0;
-  }
-
-  key = command_interface + std::string(PARAM_KD);
-  if (joint_info.parameters.find(key) != joint_info.parameters.end())
-  {
-    kd = std::stod(joint_info.parameters.at(key));
-  }
-  else
-  {
-    kd = 0.0;
-  }
-
-  bool enable_anti_windup = false;
-  key = command_interface + std::string(PARAM_I_MAX);
-  if (joint_info.parameters.find(key) != joint_info.parameters.end())
-  {
-    i_max = std::stod(joint_info.parameters.at(key));
-    enable_anti_windup = true;
-  }
-  else
-  {
-    i_max = std::numeric_limits<double>::max();
-  }
-
-  key = command_interface + std::string(PARAM_I_MIN);
-  if (joint_info.parameters.find(key) != joint_info.parameters.end())
-  {
-    i_min = std::stod(joint_info.parameters.at(key));
-    enable_anti_windup = true;
-  }
-  else
-  {
-    i_min = std::numeric_limits<double>::lowest();
-  }
-  //FIXME add antiwindup strategy
-  return control_toolbox::Pid(kp, ki, kd, i_max, i_min);
-}
 }  // namespace mujoco_ros2_control
 
 #include <pluginlib/class_list_macros.hpp>

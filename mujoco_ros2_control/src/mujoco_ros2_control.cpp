@@ -31,10 +31,11 @@ class MJResourceManager : public hardware_interface::ResourceManager
 {
   public:
   MJResourceManager(hardware_interface::ResourceManagerParams & params, mjModel *mujoco_model, mjData *mujoco_data)
-  : mj_model_(mujoco_model), 
-    mj_data_(mujoco_data),
-    logger_(params.logger),
-    hardware_interface::ResourceManager(params, false) {
+  // base first, then members in DECLARATION order - the compiler initialises them in that
+  // order whatever this list says, and -Wreorder was warning about it on every build.
+  : hardware_interface::ResourceManager(params, false),
+    mj_model_(mujoco_model),
+    mj_data_(mujoco_data) {
   }
 
 bool load_and_initialize_components(
@@ -97,8 +98,8 @@ private:
 
   mjModel *mj_model_;
   mjData *mj_data_;
-
-  rclcpp::Logger logger_;
+  // no logger_ member: every message in this class logs through params.logger, which is
+  // the one the resource manager was handed.  The member was stored and never read.
 };
 
 
@@ -116,8 +117,12 @@ MujocoRos2Control::MujocoRos2Control(
 MujocoRos2Control::~MujocoRos2Control()
 {
   stop_cm_thread_ = true;
-  cm_executor_->remove_node(controller_manager_);
-  cm_executor_->cancel();
+  // Both may be null: init() can fail before either is made, and this runs either way.
+  if (cm_executor_)
+  {
+    if (controller_manager_) cm_executor_->remove_node(controller_manager_);
+    cm_executor_->cancel();
+  }
 
   if (cm_thread_.joinable()) cm_thread_.join();
 }
@@ -159,8 +164,13 @@ std::string MujocoRos2Control::get_robot_description()
   return robot_description;
 }
 
-void MujocoRos2Control::init()
-{  
+// Returns false on every path that leaves controller_manager_ null.  It used to return
+// void: main() called it, ignored the three `return`s below and went straight into the
+// loop, where update() dereferences controller_manager_ - and so does the destructor.
+// A failed URDF parse was a segfault, not a message.
+bool MujocoRos2Control::init()
+{
+  
   clock_publisher_ = node_->create_publisher<rosgraph_msgs::msg::Clock>("/clock", 10);
   cm_executor_ = std::make_shared<rclcpp::executors::MultiThreadedExecutor>();
 
@@ -176,7 +186,7 @@ void MujocoRos2Control::init()
   catch (const std::runtime_error &ex)
   {
     RCLCPP_ERROR_STREAM(logger_, "Error parsing URDF : " << ex.what());
-    return;
+    return false;
   }
   RCLCPP_INFO(node_->get_logger(), "2. Creating resource manager");
   hardware_interface::ResourceManagerParams params;
@@ -205,7 +215,7 @@ void MujocoRos2Control::init()
   if (!controller_manager_->has_parameter("update_rate"))
   {
     RCLCPP_ERROR_STREAM(logger_, "controller manager doesn't have an update_rate parameter");
-    return;
+    return false;
   }
 
   auto update_rate = controller_manager_->get_parameter("update_rate").as_int();
@@ -236,6 +246,7 @@ void MujocoRos2Control::init()
     }
   };
   cm_thread_ = std::thread(spin);
+  return true;
 }
 
 void MujocoRos2Control::update()

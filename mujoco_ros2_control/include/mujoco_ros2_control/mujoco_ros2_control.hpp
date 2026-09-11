@@ -42,7 +42,7 @@ class MujocoRos2Control
 public:
   MujocoRos2Control(rclcpp::Node::SharedPtr &node, mjModel *mujoco_model, mjData *mujoco_data);
   ~MujocoRos2Control();
-  void init();
+  bool init();          // false = it did not come up; do not call update()
   void update();
 
 private:

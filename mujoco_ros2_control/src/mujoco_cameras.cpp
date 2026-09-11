@@ -113,6 +113,26 @@ void MujocoCameras::register_cameras(const mjModel *mujoco_model)
     const int *cam_resolution = mujoco_model->cam_resolution + 2 * i;
     const mjtNum cam_fovy = mujoco_model->cam_fovy[i];
 
+    // The viewport below is set from the camera's own resolution with no reference to the
+    // offscreen buffer the scene declares (<global offwidth/offheight>).  mjr_readPixels
+    // then fills a cam_resolution-sized image out of a buffer that may be smaller, and
+    // what gets published is not a valid image - a 3840x2160 camera against MuJoCo's
+    // default 640x480 buffer was shipping for weeks.  MuJoCo's own Python API rejects that
+    // combination outright; this said nothing at all.  Skip such a camera and say why.
+    if (cam_resolution[0] > mujoco_model->vis.global.offwidth ||
+        cam_resolution[1] > mujoco_model->vis.global.offheight)
+    {
+      RCLCPP_ERROR(
+        node_->get_logger(),
+        "camera '%s' is %dx%d but the model's offscreen buffer is only %dx%d - it would "
+        "publish a short image, so it is not registered.  Raise <global offwidth/offheight> "
+        "in the scene (smalldog_description derives it from mini_dog.CAM_PIX) or lower the "
+        "camera's resolution.",
+        cam_name, cam_resolution[0], cam_resolution[1], mujoco_model->vis.global.offwidth,
+        mujoco_model->vis.global.offheight);
+      continue;
+    }
+
     // Construct CameraData wrapper and set defaults
     CameraData camera;
     camera.name = cam_name;
@@ -161,6 +181,10 @@ void MujocoCameras::register_cameras(const mjModel *mujoco_model)
     camera.camera_info.distortion_model = "plumb_bob";
     camera.camera_info.k.fill(0.0);
     camera.camera_info.r.fill(0.0);
+    // R is the rectification rotation.  For a monocular camera it is the IDENTITY, not
+    // zero: an all-zero R maps every ray to the origin, and image_geometry's
+    // PinholeCameraModel takes it at its word.  It was left as filled.
+    camera.camera_info.r[0] = camera.camera_info.r[4] = camera.camera_info.r[8] = 1.0;
     camera.camera_info.p.fill(0.0);
     camera.camera_info.d.resize(5, 0.0);
 

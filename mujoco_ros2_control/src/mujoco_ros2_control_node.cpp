@@ -71,7 +71,16 @@ int main(int argc, const char **argv)
   // initialize mujoco control
   auto mujoco_control = mujoco_ros2_control::MujocoRos2Control(node, mujoco_model, mujoco_data);
 
-  mujoco_control.init();
+  if (!mujoco_control.init())
+  {
+    // init() leaves controller_manager_ null on failure and update() dereferences it, so
+    // there is nothing to carry on with.  It used to fall through into the loop.
+    RCLCPP_FATAL_STREAM(node->get_logger(), "Mujoco ros2 controller failed to initialize");
+    mj_deleteData(mujoco_data);
+    mj_deleteModel(mujoco_model);
+    rclcpp::shutdown();
+    return 1;
+  }
   RCLCPP_INFO_STREAM(
     node->get_logger(), "Mujoco ros2 controller has been successfully initialized !");
 
@@ -181,5 +190,9 @@ int main(int argc, const char **argv)
   mj_deleteData(mujoco_data);
   mj_deleteModel(mujoco_model);
 
-  return 1;
+  // This is the SUCCESS path: it returned 1, so every launch file that watches this node's
+  // exit code saw a crash on a clean quit.  And rclcpp::shutdown() was never called, so
+  // the context was torn down by the process exiting rather than by ROS.
+  rclcpp::shutdown();
+  return 0;
 }
