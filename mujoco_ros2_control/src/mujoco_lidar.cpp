@@ -149,22 +149,29 @@ void MujocoLidar::update(const mjModel *mujoco_model, mjData *mujoco_data)
   dist_.resize(nray);
   geomid_.assign(nray, -1);
 
-  // The Risley pair, in closed form.  Two wedges of half-angle cone/2 spinning at spin_[0]
-  // and spin_[1] Hz: the angle from the sensor axis comes out as 0..cone and the azimuth
-  // wraps with the first prism.  Same expression as directions() in 3d/lidar.py.
-  const double a = 0.5 * cone_;
-  const double sa = std::sin(a), ca = std::cos(a);
+  // The measured pattern: the beam spins in a meridian plane through the axis at spin_[0]
+  // rev/s (one line per revolution, rim -> axis -> rim; the half-turn round the back is
+  // skipped, these rays are the returns) and the plane precesses at spin_[1] rev/s.
+  // Along a line the rays are uniform in angle except the last kTaper before the rim,
+  // where they thin linearly to nothing.  Same expression as directions() in 3d/lidar.py.
+  const double kTaper = 8.0 * M_PI / 180.0;
+  const double tp = std::min(kTaper, cone_);
+  const double half = cone_ - 0.5 * tp;
   const mjtNum *site_mat = mujoco_data->site_xmat + 9 * site_;
   for (int i = 0; i < nray; ++i)
   {
     const double t = t0 + (i + 0.5) * (t1 - t0) / nray;
-    const double p1 = 2.0 * M_PI * spin_[0] * t;
-    const double p2 = 2.0 * M_PI * spin_[1] * t;
-    const double x1 = sa * ca * (1.0 + std::cos(p2));
-    const double y1 = sa * std::sin(p2);
-    const double z1 = ca * ca - sa * sa * std::cos(p2);
-    const double x = x1 * std::cos(p1) - y1 * std::sin(p1);
-    const double y = x1 * std::sin(p1) + y1 * std::cos(p1);
+    const double line = spin_[0] * t;
+    const double u = line - std::floor(line);
+    const double m = std::fabs(2.0 * u - 1.0) * half;
+    const double theta = (m <= cone_ - tp)
+        ? m
+        : cone_ - std::sqrt(std::max(0.0, tp * tp - 2.0 * tp * (m - cone_ + tp)));
+    const double phi = 2.0 * M_PI * spin_[1] * t + (u < 0.5 ? M_PI : 0.0);
+    const double st = std::sin(theta);
+    const double x = st * std::cos(phi);
+    const double y = st * std::sin(phi);
+    const double z1 = std::cos(theta);
     local_[3 * i + 0] = x;
     local_[3 * i + 1] = y;
     local_[3 * i + 2] = z1;
